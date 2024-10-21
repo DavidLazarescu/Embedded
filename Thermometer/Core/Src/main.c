@@ -51,7 +51,7 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 Capture capture = {0};
-uint8_t firstCaptureValueAdded = 0;
+uint8_t firstCaptureDone = 0;
 CircularBuffer circularBuffer = {0};
 /* USER CODE END PV */
 
@@ -64,6 +64,7 @@ static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 void delay_us(uint32_t us);
 void delay_ms(uint32_t ms);
+uint16_t getPeriodInUs(uint16_t start, uint16_t end);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -129,24 +130,78 @@ int main(void)
   HAL_TIM_IC_Start_IT(&htim16, TIM_CHANNEL_1);
 
 
-  char msg[40];
+  /*
+   * The Signal lengths are interpreted as follows (in microseconds):
+   * 22-32 -> LOW
+   * 65-75 -> HIGH
+   * 76-84 -> START
+   * */
+  uint8_t highPeriod = 70;
+  uint8_t lowPeriod = 27;
+  uint8_t startSignalPeriod = 80;
+
+  uint8_t currentlyReadingHumidity = 1;
+  uint8_t currentlyReadingTemperature = 0;
+  uint16_t humidityBits = 0;
+  uint16_t temperatureBits = 0;
+  uint8_t currentBit = 0;
   while (1)
   {
 	  if(!circularBufferIsEmpty(&circularBuffer))
 	  {
-		  uint16_t period;
-
 		  Capture curr = circularBufferFirst(&circularBuffer);
-		  if(curr.end >= curr.start)
-			  period = curr.end - curr.start;
+		  // Low signals are used to indicate the start of the transmission of the next bit,
+		  // so we just skip it
+		  if(curr.level == CAPTURE_TYPE_LOW)
+			  continue;
+
+		  uint16_t period = getPeriodInUs(curr.start, curr.end);
+		  // Signal indicates High -> Logical 1
+		  if(period <= highPeriod + 5 && period >= highPeriod - 5)
+		  {
+			  if(currentlyReadingHumidity)
+				  humidityBits |= (1 << (15 - currentBit));
+			  else if(currentlyReadingTemperature)
+				  temperatureBits |= (1 << (15 - currentBit));
+
+			  ++currentBit;
+		  }
+		  else if(period <= lowPeriod + 5 && period >= lowPeriod - 5)
+		  {
+			  ++currentBit;
+		  }
+		  else if(period < startSignalPeriod + 5 && period > startSignalPeriod - 5)
+		  {
+			  continue;
+		  }
 		  else
-			  period = (htim16.Instance->ARR - curr.start) + curr.end;
+		  {
+			  char* unknownSignalMsg = "A signal with an unknown length was detected!\r\n";
+			  HAL_UART_Transmit(&huart2, (uint8_t*)unknownSignalMsg, strlen(unknownSignalMsg), HAL_MAX_DELAY);
+		  }
 
-		  uint32_t frequency = HAL_RCC_GetPCLK1Freq() / (htim16.Instance->PSC + 1);
-		  uint16_t timeInUs = roundf((float)period / frequency * 1000000.0f);
+		  if(!currentlyReadingTemperature && currentBit == 16)
+		  {
+			  currentlyReadingTemperature = 1;
+			  currentlyReadingHumidity = 0;
 
-		  sprintf(msg, "Type: %s\tPeriod: %luus\r\n", (curr.level == CAPTURE_TYPE_HIGH ? "High" : "Low"), (unsigned long)timeInUs);
-		  HAL_UART_Transmit(&huart2, (uint8_t*) msg, strlen(msg), HAL_MAX_DELAY);
+			  currentBit = 0;
+		  }
+		  if(currentlyReadingTemperature && currentBit == 16)
+		  {
+			  currentlyReadingTemperature = 0;
+			  currentlyReadingHumidity = 0;
+
+			  float humidity = humidityBits / 10.0f;
+			  char humidityMsg[30];
+			  sprintf(humidityMsg, "Humidity: %.3f%%\r\n", humidity);
+			  HAL_UART_Transmit(&huart2, (uint8_t*)humidityMsg, strlen(humidityMsg), HAL_MAX_DELAY);
+
+			  float temperature = temperatureBits / 10.0f;
+			  char temperatureMsg[30];
+			  sprintf(temperatureMsg, "Temperature: %.3f\r\n", temperature);
+			  HAL_UART_Transmit(&huart2, (uint8_t*)temperatureMsg, strlen(temperatureMsg), HAL_MAX_DELAY);
+		  }
 	  }
     /* USER CODE END WHILE */
 
@@ -388,24 +443,39 @@ void delay_ms(uint32_t ms)
 		delay_us(1000);
 }
 
+uint16_t getPeriodInUs(uint16_t start, uint16_t end)
+{
+	uint16_t period;
+	if(end >= start)
+	  period = end - start;
+	else
+	  period = (htim16.Instance->ARR - start) + end;
+
+	uint32_t frequency = HAL_RCC_GetPCLK1Freq() / (htim16.Instance->PSC + 1);
+	uint16_t timeInUs = roundf((float)period / frequency * 1000000.0f);
+	return timeInUs;
+}
+
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM16)
     {
         if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
         {
-        	if(!firstCaptureValueAdded)
+        	if(!firstCaptureDone)
         	{
         		capture.start = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
         		capture.level = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) ? CAPTURE_TYPE_HIGH : CAPTURE_TYPE_LOW;
-        		firstCaptureValueAdded = 1;
+        		firstCaptureDone = 1;
         	}
         	else
         	{
 				capture.end = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-				firstCaptureValueAdded = 0;
-
 				circularBufferAdd(&circularBuffer, &capture);
+
+				// Set the end of the previous capture as the start of the next capture
+				capture.start = capture.end;
+				capture.level = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) ? CAPTURE_TYPE_HIGH : CAPTURE_TYPE_LOW;
         	}
         }
     }
