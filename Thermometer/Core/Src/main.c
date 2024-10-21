@@ -98,10 +98,10 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_TIM16_Init();
   MX_TIM6_Init();
+  MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim6);
   /* USER CODE END 2 */
@@ -113,10 +113,11 @@ int main(void)
 
   // Startup signal
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
-  delay_us(1000);
+  delay_ms(6);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, SET);
   delay_us(20);
 
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   GPIO_InitStruct.Pin = GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -368,7 +369,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_2 */
 }
