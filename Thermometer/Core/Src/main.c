@@ -49,8 +49,6 @@ typedef struct {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-LPTIM_HandleTypeDef hlptim2;
-
 RTC_HandleTypeDef hrtc;
 
 TIM_HandleTypeDef htim6;
@@ -70,7 +68,6 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_TIM6_Init(void);
-static void MX_LPTIM2_Init(void);
 static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 void delayUs(uint32_t us);
@@ -120,7 +117,6 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM16_Init();
   MX_TIM6_Init();
-  MX_LPTIM2_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim6);
@@ -195,7 +191,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 40;
+  RCC_OscInitStruct.PLL.PLLN = 20;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -213,7 +209,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -221,40 +217,6 @@ void SystemClock_Config(void)
   /** Enable MSI Auto calibration
   */
   HAL_RCCEx_EnableMSIPLLMode();
-}
-
-/**
-  * @brief LPTIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_LPTIM2_Init(void)
-{
-
-  /* USER CODE BEGIN LPTIM2_Init 0 */
-
-  /* USER CODE END LPTIM2_Init 0 */
-
-  /* USER CODE BEGIN LPTIM2_Init 1 */
-
-  /* USER CODE END LPTIM2_Init 1 */
-  hlptim2.Instance = LPTIM2;
-  hlptim2.Init.Clock.Source = LPTIM_CLOCKSOURCE_APBCLOCK_LPOSC;
-  hlptim2.Init.Clock.Prescaler = LPTIM_PRESCALER_DIV1;
-  hlptim2.Init.Trigger.Source = LPTIM_TRIGSOURCE_SOFTWARE;
-  hlptim2.Init.OutputPolarity = LPTIM_OUTPUTPOLARITY_HIGH;
-  hlptim2.Init.UpdateMode = LPTIM_UPDATE_IMMEDIATE;
-  hlptim2.Init.CounterSource = LPTIM_COUNTERSOURCE_INTERNAL;
-  hlptim2.Init.Input1Source = LPTIM_INPUT1SOURCE_GPIO;
-  hlptim2.Init.Input2Source = LPTIM_INPUT2SOURCE_GPIO;
-  if (HAL_LPTIM_Init(&hlptim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN LPTIM2_Init 2 */
-
-  /* USER CODE END LPTIM2_Init 2 */
-
 }
 
 /**
@@ -311,7 +273,7 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 79;
+  htim6.Init.Prescaler = 39;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
