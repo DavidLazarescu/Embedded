@@ -136,10 +136,10 @@ int main(void)
   	  SensorResults readings = processSensorReadings();
 	  HAL_TIM_IC_Stop_IT(&htim16, TIM_CHANNEL_1);
 
-	  sprintf(msgBuf, "Temp: %.3f\r\n", readings.temperature);
+	  sprintf(msgBuf, "Temp: %.1f\r\n", readings.temperature);
 	  HAL_UART_Transmit(&huart2, (uint8_t*)msgBuf, strlen(msgBuf), HAL_MAX_DELAY);
 
-	  sprintf(msgBuf, "Humidity: %.3f\r\n", readings.humidity);
+	  sprintf(msgBuf, "Humidity: %.1f%%\r\n", readings.humidity);
 	  HAL_UART_Transmit(&huart2, (uint8_t*)msgBuf, strlen(msgBuf), HAL_MAX_DELAY);
 
 	  HAL_SuspendTick();
