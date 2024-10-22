@@ -31,12 +31,16 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct {
+	float humidity;
+	float temperature;
+} SensorResults;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define LOW_PERIOD 27
+#define HIGH_PERIOD 70
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -67,6 +71,10 @@ void delayUs(uint32_t us);
 void delayMs(uint32_t ms);
 uint16_t getPeriodInUs(uint16_t start, uint16_t end);
 bool isBetween(uint16_t val, uint16_t first, uint16_t second);
+SensorResults processSensorReadings();
+void sendStartSignal();
+void setPinToWriteMode();
+void setPinToReadMode();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -81,7 +89,7 @@ bool isBetween(uint16_t val, uint16_t first, uint16_t second);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+  char msgBuf[30];
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -111,82 +119,25 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   // Wait 1s after startup for sensor to gather data
   delayMs(1000);
 
-  // Startup signal
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
-  delayMs(6);
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, SET);
-  delayUs(20);
-
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  GPIO_InitStruct.Pin = GPIO_PIN_6;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF14_TIM16;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  HAL_TIM_IC_Start_IT(&htim16, TIM_CHANNEL_1);
-
-
-  /*
-   * The Signal lengths are interpreted as follows (in microseconds):
-   * 22-32 -> LOW
-   * 65-75 -> HIGH
-   * 76-84 -> START
-   * */
-  uint8_t highPeriod = 70;
-  uint8_t lowPeriod = 27;
-  uint8_t startSignalPeriod = 80;
-
-  uint16_t humidityBits = 0;
-  uint16_t temperatureBits = 0;
-  uint8_t currentBit = 0;
   while (1)
   {
-	  if(!circularBufferIsEmpty(&circularBuffer))
-	  {
-		  Capture curr = circularBufferFirst(&circularBuffer);
+  	  sendStartSignal();
 
-		  // Low signals are used to indicate the start of the transmission of the next bit
-		  if(curr.level == CAPTURE_TYPE_LOW)
-			  continue;
+  	  setPinToReadMode();
+  	  SensorResults readings = processSensorReadings();
+	  HAL_TIM_IC_Stop_IT(&htim16, TIM_CHANNEL_1);
 
-		  uint16_t period = getPeriodInUs(curr.start, curr.end);
-		  if(isBetween(period, highPeriod - 5, highPeriod + 5))
-		  {
-			  if(currentBit < 16)
-				  humidityBits |= (1 << (15 - currentBit));
-			  else if(currentBit >= 16 && currentBit <= 31)
-				  temperatureBits |= (1 << (15 - (currentBit - 16)));
+	  sprintf(msgBuf, "Temp: %.3f\r\n", readings.temperature);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)msgBuf, strlen(msgBuf), HAL_MAX_DELAY);
 
-			  ++currentBit;
-		  }
-		  else if(isBetween(period, lowPeriod - 5, lowPeriod + 5))
-		  {
-			  ++currentBit;
-		  }
-		  else if(isBetween(period, startSignalPeriod - 4, startSignalPeriod + 4))
-		  {
-			  continue;
-		  }
+	  sprintf(msgBuf, "Humidity: %.3f\r\n", readings.humidity);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)msgBuf, strlen(msgBuf), HAL_MAX_DELAY);
 
-		  if(currentBit == 40)
-		  {
-			  float humidity = humidityBits / 10.0f;
-			  char humidityMsg[30];
-			  sprintf(humidityMsg, "Humidity: %.3f%%\r\n", humidity);
-			  HAL_UART_Transmit(&huart2, (uint8_t*)humidityMsg, strlen(humidityMsg), HAL_MAX_DELAY);
-
-			  float temperature = temperatureBits / 10.0f;
-			  char temperatureMsg[30];
-			  sprintf(temperatureMsg, "Temperature: %.3f\r\n", temperature);
-			  HAL_UART_Transmit(&huart2, (uint8_t*)temperatureMsg, strlen(temperatureMsg), HAL_MAX_DELAY);
-		  }
-	  }
+	  delayMs(1000);
     /* USER CODE END WHILE */
 
 
@@ -403,14 +354,6 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(LD3_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
-  // Manually confiure PA6 which is later being used as the input capture EXTI line
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
-
-  GPIO_InitStruct.Pin = GPIO_PIN_6;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -426,6 +369,41 @@ void delayMs(uint32_t ms)
 {
 	for(int i = 0; i < ms; ++i)
 		delayUs(1000);
+}
+
+void setPinToWriteMode()
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+}
+
+void setPinToReadMode()
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF14_TIM16;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_TIM_IC_Start_IT(&htim16, TIM_CHANNEL_1);
+}
+
+void sendStartSignal()
+{
+  setPinToWriteMode();
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
+  delayMs(6);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, SET);
+  delayUs(20);
 }
 
 uint16_t getPeriodInUs(uint16_t start, uint16_t end)
@@ -445,6 +423,41 @@ bool isBetween(uint16_t val, uint16_t first, uint16_t second)
 {
 	return val >= first && val <= second;
 }
+
+SensorResults processSensorReadings()
+{
+  uint16_t humidityBits = 0;
+  uint16_t temperatureBits = 0;
+  uint8_t currentBit = 0;
+  while (currentBit != 40)
+  {
+	  if(circularBufferIsEmpty(&circularBuffer))
+		  continue;
+
+	  Capture curr = circularBufferFirst(&circularBuffer);
+	  if(curr.level == CAPTURE_TYPE_LOW)
+		  continue; // Low signal indicates the start of the transmission -> Skip
+
+	  uint16_t period = getPeriodInUs(curr.start, curr.end);
+	  if(isBetween(period, HIGH_PERIOD - 5, HIGH_PERIOD + 5))
+	  {
+		  if(currentBit < 16)
+			  humidityBits |= (1 << (15 - currentBit));
+		  else if(currentBit >= 16 && currentBit <= 31)
+			  temperatureBits |= (1 << (15 - (currentBit - 16)));
+
+		  ++currentBit;
+	  }
+	  else if(isBetween(period, LOW_PERIOD - 5, LOW_PERIOD + 5))
+		  ++currentBit;
+  }
+
+  return (SensorResults) {
+	  .temperature = temperatureBits / 10.0f,
+	  .humidity = humidityBits / 10.0f
+  };
+}
+
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
