@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <math.h>
 #include "circular_buffer.h"
 // #include "circular_buffer.h"
@@ -62,9 +63,10 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
-void delay_us(uint32_t us);
-void delay_ms(uint32_t ms);
+void delayUs(uint32_t us);
+void delayMs(uint32_t ms);
 uint16_t getPeriodInUs(uint16_t start, uint16_t end);
+bool isBetween(uint16_t val, uint16_t first, uint16_t second);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -110,13 +112,13 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   // Wait 1s after startup for sensor to gather data
-  delay_ms(1000);
+  delayMs(1000);
 
   // Startup signal
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
-  delay_ms(6);
+  delayMs(6);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, SET);
-  delay_us(20);
+  delayUs(20);
 
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, RESET);
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -140,8 +142,6 @@ int main(void)
   uint8_t lowPeriod = 27;
   uint8_t startSignalPeriod = 80;
 
-  uint8_t currentlyReadingHumidity = 1;
-  uint8_t currentlyReadingTemperature = 0;
   uint16_t humidityBits = 0;
   uint16_t temperatureBits = 0;
   uint8_t currentBit = 0;
@@ -150,48 +150,32 @@ int main(void)
 	  if(!circularBufferIsEmpty(&circularBuffer))
 	  {
 		  Capture curr = circularBufferFirst(&circularBuffer);
-		  // Low signals are used to indicate the start of the transmission of the next bit,
-		  // so we just skip it
+
+		  // Low signals are used to indicate the start of the transmission of the next bit
 		  if(curr.level == CAPTURE_TYPE_LOW)
 			  continue;
 
 		  uint16_t period = getPeriodInUs(curr.start, curr.end);
-		  // Signal indicates High -> Logical 1
-		  if(period <= highPeriod + 5 && period >= highPeriod - 5)
+		  if(isBetween(period, highPeriod - 5, highPeriod + 5))
 		  {
-			  if(currentlyReadingHumidity)
+			  if(currentBit < 16)
 				  humidityBits |= (1 << (15 - currentBit));
-			  else if(currentlyReadingTemperature)
-				  temperatureBits |= (1 << (15 - currentBit));
+			  else if(currentBit >= 16 && currentBit <= 31)
+				  temperatureBits |= (1 << (15 - (currentBit - 16)));
 
 			  ++currentBit;
 		  }
-		  else if(period <= lowPeriod + 5 && period >= lowPeriod - 5)
+		  else if(isBetween(period, lowPeriod - 5, lowPeriod + 5))
 		  {
 			  ++currentBit;
 		  }
-		  else if(period < startSignalPeriod + 5 && period > startSignalPeriod - 5)
+		  else if(isBetween(period, startSignalPeriod - 4, startSignalPeriod + 4))
 		  {
 			  continue;
 		  }
-		  else
-		  {
-			  char* unknownSignalMsg = "A signal with an unknown length was detected!\r\n";
-			  HAL_UART_Transmit(&huart2, (uint8_t*)unknownSignalMsg, strlen(unknownSignalMsg), HAL_MAX_DELAY);
-		  }
 
-		  if(!currentlyReadingTemperature && currentBit == 16)
+		  if(currentBit == 40)
 		  {
-			  currentlyReadingTemperature = 1;
-			  currentlyReadingHumidity = 0;
-
-			  currentBit = 0;
-		  }
-		  if(currentlyReadingTemperature && currentBit == 16)
-		  {
-			  currentlyReadingTemperature = 0;
-			  currentlyReadingHumidity = 0;
-
 			  float humidity = humidityBits / 10.0f;
 			  char humidityMsg[30];
 			  sprintf(humidityMsg, "Humidity: %.3f%%\r\n", humidity);
@@ -204,6 +188,7 @@ int main(void)
 		  }
 	  }
     /* USER CODE END WHILE */
+
 
     /* USER CODE BEGIN 3 */
   }
@@ -431,16 +416,16 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void delay_us(uint32_t us)
+void delayUs(uint32_t us)
 {
 	htim6.Instance->CNT = 0;
 	while(htim6.Instance->CNT < us);
 }
 
-void delay_ms(uint32_t ms)
+void delayMs(uint32_t ms)
 {
 	for(int i = 0; i < ms; ++i)
-		delay_us(1000);
+		delayUs(1000);
 }
 
 uint16_t getPeriodInUs(uint16_t start, uint16_t end)
@@ -454,6 +439,11 @@ uint16_t getPeriodInUs(uint16_t start, uint16_t end)
 	uint32_t frequency = HAL_RCC_GetPCLK1Freq() / (htim16.Instance->PSC + 1);
 	uint16_t timeInUs = roundf((float)period / frequency * 1000000.0f);
 	return timeInUs;
+}
+
+bool isBetween(uint16_t val, uint16_t first, uint16_t second)
+{
+	return val >= first && val <= second;
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
