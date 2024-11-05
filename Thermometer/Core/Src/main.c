@@ -41,6 +41,25 @@ typedef struct {
 /* USER CODE BEGIN PD */
 #define LOW_PERIOD 27
 #define HIGH_PERIOD 70
+
+#define DISPLAY_DATA_PIN GPIO_PIN_5
+#define DISPLAY_LATCH_PIN GPIO_PIN_3
+#define DISPLAY_CLOCK_PIN GPIO_PIN_4
+
+#define SENSOR_DATA_PIN GPIO_PIN_6
+
+int digits[10][8] = {
+	{1, 1, 1, 0, 1, 1, 1, 0}, // 0
+	{0, 0, 1, 0, 1, 0, 0, 0}, // 1
+	{1, 1, 0, 0, 1, 1, 0, 1}, // 2
+	{0, 1, 1, 0, 1, 1, 0, 1}, // 3
+	{0, 0, 1, 0, 1, 0, 1, 1}, // 4
+	{0, 1, 1, 0, 0, 1, 1, 1}, // 5
+	{1, 1, 1, 0, 0, 1, 1, 1}, // 6
+	{0, 0, 1, 0, 1, 1, 0, 0}, // 7
+	{1, 1, 1, 0, 1, 1, 1, 1}, // 8
+	{0, 1, 1, 0, 1, 1, 1, 1}  // 9
+};
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -78,6 +97,8 @@ SensorResults processSensorReadings();
 void sendStartSignal();
 void setPinToWriteMode();
 void setPinToReadMode();
+void goToSleep();
+void displayResults();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -93,7 +114,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  char msgBuf[30];
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -126,30 +146,20 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
   // Wait 1s after startup for sensor to gather data
-  delayMs(1000);
+  HAL_Delay(1000);
 
   while (1)
   {
-  	  sendStartSignal();
+  	  // sendStartSignal();
 
-  	  setPinToReadMode();
-  	  SensorResults readings = processSensorReadings();
-	  HAL_TIM_IC_Stop_IT(&htim16, TIM_CHANNEL_1);
+  	  // setPinToReadMode();
+  	  // SensorResults readings = processSensorReadings();
+	  //HAL_TIM_IC_Stop_IT(&htim16, TIM_CHANNEL_1);
 
-	  sprintf(msgBuf, "Temp: %.1f\r\n", readings.temperature);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msgBuf, strlen(msgBuf), HAL_MAX_DELAY);
+	  displayResults();
+	  HAL_Delay(200);
 
-	  sprintf(msgBuf, "Humidity: %.1f%%\r\n", readings.humidity);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msgBuf, strlen(msgBuf), HAL_MAX_DELAY);
-
-	  HAL_SuspendTick();
-	  HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 0x500B, RTC_WAKEUPCLOCK_RTCCLK_DIV16);
-
-	  /* Enter STOP 2 mode */
-	  HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
-	  HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
-	  SystemClock_Config();
-	  HAL_ResumeTick();
+	  // goToSleep();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -391,7 +401,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PA3 PA4 PA5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LD3_Pin */
   GPIO_InitStruct.Pin = LD3_Pin;
@@ -471,6 +491,16 @@ bool isBetween(uint16_t val, uint16_t first, uint16_t second)
 	return val >= first && val <= second;
 }
 
+void goToSleep()
+{
+  HAL_SuspendTick();
+  HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 0x500B, RTC_WAKEUPCLOCK_RTCCLK_DIV16);
+  HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
+  HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+  SystemClock_Config();
+  HAL_ResumeTick();
+}
+
 SensorResults processSensorReadings()
 {
   uint16_t humidityBits = 0;
@@ -503,6 +533,24 @@ SensorResults processSensorReadings()
 	  .temperature = temperatureBits / 10.0f,
 	  .humidity = humidityBits / 10.0f
   };
+}
+
+void displayResults(/*SensorResults results*/)
+{
+	for(int i = 0; i <= 9; ++i)
+	{
+		HAL_GPIO_WritePin(GPIOA, DISPLAY_LATCH_PIN, RESET);
+		for(int k = 7; k >= 0; --k)
+		{
+			HAL_GPIO_WritePin(GPIOA, DISPLAY_CLOCK_PIN, RESET);
+			delayUs(20);
+			HAL_GPIO_WritePin(GPIOA, DISPLAY_DATA_PIN, digits[i][k]);
+			delayUs(20);
+			HAL_GPIO_WritePin(GPIOA, DISPLAY_CLOCK_PIN, SET);
+		}
+		HAL_GPIO_WritePin(GPIOA, DISPLAY_LATCH_PIN, SET);
+		HAL_Delay(800);
+	}
 }
 
 
